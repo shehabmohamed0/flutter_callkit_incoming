@@ -94,7 +94,6 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                 instance = FlutterCallkitIncomingPlugin()
                 instance.callkitSoundPlayerManager = CallkitSoundPlayerManager(context)
                 instance.callkitNotificationManager = CallkitNotificationManager(context, instance.callkitSoundPlayerManager)
-                instance.context = context
             } else {
                 // Re-initialize managers if they were destroyed but instance still exists
                 if (instance.callkitNotificationManager == null) {
@@ -102,6 +101,12 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                     instance.callkitNotificationManager = CallkitNotificationManager(context, instance.callkitSoundPlayerManager)
                 }
             }
+            // Always refresh applicationContext. onDetachedFromActivity used to null this
+            // out, which broke the FBS engine after the main activity was destroyed:
+            // context?.sendBroadcast(…) silently did nothing, so incoming calls never
+            // showed when the app was fully killed. applicationContext outlives any
+            // activity so it must never be set to null.
+            instance.context = context
 
             val channel = MethodChannel(binaryMessenger, "flutter_callkit_incoming")
             methodChannels[binaryMessenger] = channel
@@ -411,7 +416,13 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
     }
 
     override fun onDetachedFromActivity() {
-        instance.context = null
+        // instance.context (applicationContext) intentionally NOT nulled here.
+        // It holds applicationContext — not the activity context — and remains
+        // valid for the entire process lifetime. Nulling it causes the static
+        // shared plugin instance to lose its context, so any call to
+        // showCallkitIncoming from the FBS engine (after the main activity is
+        // destroyed) silently does nothing: context?.sendBroadcast(…) is
+        // skipped via the safe-call operator, and incoming calls never appear.
         instance.activity = null
     }
 
